@@ -54,11 +54,21 @@ namespace A5BGames.DisintegrationEffect
         [Min (0)]
         private float delayVarianceMaximum;
 
+        [Header ("Loop")]
+        [SerializeField]
+        private bool loopEffect;
+
+        [SerializeField]
+        [Min (0)]
+        private float loopDelay;
+
         // immutable data
         private List<Mesh> triangleMeshes;                  // meshes
         private List<Vector3> initialPositions;             // initial positions
         private List<Vector3> triangleNormals;              // normals
         private List<float> particleLifetimes;              // lifetime
+
+        private float loopTime = 0f;
 
         private void Start () {
             // if the source renderer is a SkinnedMeshRenderer, get the source information from
@@ -200,6 +210,10 @@ namespace A5BGames.DisintegrationEffect
                 // point plus a random value between the variance min and max.
                 var delay = Vector3.Distance (position, originPoint) * delayFactor;
                 delay += Random.Range (delayVarianceMinimum, delayVarianceMaximum);
+
+                if ((delay + particleLifetimes[i]) > loopTime) {
+                    loopTime = delay + particleLifetimes[i];
+                }
                 
                 // add data to the lists
                 particleVelocities.Add (velocity);
@@ -215,7 +229,16 @@ namespace A5BGames.DisintegrationEffect
 
             // Create and Play the effect
             var effect = DisintegrateEffect.Create (transform.position, transform.rotation);
-            effect.Play (triangleMeshes, sourceMaterial, particleMesh, particleMaterial, initialPositions, particleVelocities, particleLifetimes, particleDelay, particleAge, activeParticles);
+            effect.Play (
+                triangleMeshes, sourceMaterial, particleMesh, particleMaterial, 
+                initialPositions, particleVelocities, particleLifetimes, particleDelay, 
+                particleAge, activeParticles, loopEffect, (loopTime + loopDelay / 2f), () => {
+                    // if looping, renable source renderer on completion of the effect
+                    if (loopEffect) {
+                        sourceRenderer.enabled = true;
+                    }
+                }
+            );
         }
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Unity.Collections;
 
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.Rendering;
 
 namespace A5BGames.DisintegrationEffect
@@ -24,6 +25,15 @@ namespace A5BGames.DisintegrationEffect
         private List<float> particleAges;                   // particle ages
         private List<int> activeParticles;                  // the indicies of the particles that are currently active
 
+        private UnityAction onComplete;                     // method to call on completion of the effect
+
+        private bool isLooped;                              // is this effect looped
+        private float loopTime;                             // the time when the effect will loop back (reverse)
+
+        private float elapsedTime;                          // time time elapsed for the effect
+
+        private int timeDirection = 1;
+
         // list of TRS matrices for particles being rendered (updated each frame)
         private readonly List<Matrix4x4> renderMatrices = new List<Matrix4x4> ();
 
@@ -38,15 +48,21 @@ namespace A5BGames.DisintegrationEffect
         }
 
         private void Update () {
-            // exit if active particle count is zero
+            // if there are no active particles, complete the effect
             if (activeParticles.Count == 0) {
-                return;
+                Complete ();
             }
 
             RenderEffect ();
         }
 
-        public void Play (List<Mesh> triangleMeshes, Material sourceMaterial, Mesh particleMesh, Material particleMaterial, List<Vector3> initialPositions, List<Vector3> particleVelocities, List<float> particleLifetimes, List<float> particleDelays, List<float> particleAges, List<int> activeParticles) {
+        public void Play (
+                List<Mesh> triangleMeshes, Material sourceMaterial, Mesh particleMesh, Material particleMaterial, 
+                List<Vector3> initialPositions, List<Vector3> particleVelocities, List<float> particleLifetimes, 
+                List<float> particleDelays, List<float> particleAges, List<int> activeParticles, 
+                bool isLooped, float loopTime, UnityAction onComplete = null
+            ) {
+
             this.triangleMeshes = triangleMeshes;
             this.sourceMaterial = sourceMaterial;
             this.particleMesh = particleMesh;
@@ -57,6 +73,12 @@ namespace A5BGames.DisintegrationEffect
             this.particleDelays = particleDelays;
             this.particleAges = particleAges;
             this.activeParticles = activeParticles;
+            this.isLooped = isLooped;
+            this.loopTime = loopTime;
+            this.onComplete = onComplete;
+
+            elapsedTime = 0f;
+            timeDirection = 1;
 
             // render the effect (1st pass)
             // this is necessary, otherwise you'll get a flicker as the source renderer is turned off the frame
@@ -85,7 +107,10 @@ namespace A5BGames.DisintegrationEffect
                 var isDelayOver = particleAges[particleIndex] > particleDelays[particleIndex];
 
                 // determine the scale based on the current age (only scale once the delay is over)
-                var scale = isDelayOver ? (particleAges[particleIndex] - particleDelays[particleIndex]) / particleLifetimes[particleIndex] : 0;
+                var scale = 0f;
+                if (isDelayOver) {
+                    scale = Mathf.Min (1f, (particleAges[particleIndex] - particleDelays[particleIndex]) / particleLifetimes[particleIndex]);
+                }
 
                 // determine the speed step based on whether it is still within the delayed window (if so, the speed is zero)
                 var speedStep = isDelayOver ? 1 : 0;
@@ -105,13 +130,25 @@ namespace A5BGames.DisintegrationEffect
                 }
 
                 // update the age
-                particleAges[particleIndex] += Time.deltaTime;
+                particleAges[particleIndex] += (Time.deltaTime * timeDirection);
 
-                // delete the particle if it has exceeded its lifetime
-                if ((particleAges[particleIndex] - particleDelays[particleIndex]) >= particleLifetimes[particleIndex]) {
+                // for unlooped effects, remove particle once the age (minus delay) has exceeded lifetime
+                if (!isLooped && (particleAges[particleIndex] - particleDelays[particleIndex]) >= particleLifetimes[particleIndex]) {
                     // swap this active particle to the back of the list and remove
                     activeParticles.RemoveAtSwapBack (i);
                 }
+
+                // for looped effects, remove particle once the age (minus delay) is less than zero
+                if (isLooped && timeDirection < 0 && (particleAges[particleIndex] < 0f)) {
+                    // swap this active particle to the back of the list and remove
+                    activeParticles.RemoveAtSwapBack (i);
+                }
+            }
+
+            // increase the elapsed time and reverse time if loopTime exceeded
+            elapsedTime += Time.deltaTime;
+            if (isLooped && (elapsedTime > loopTime)) {
+                timeDirection = -1;
             }
 
             // draw the particles
@@ -134,6 +171,12 @@ namespace A5BGames.DisintegrationEffect
 
             // clear the render matrices for the next frame
             renderMatrices.Clear ();
+        }
+
+        public void Complete () {
+            onComplete?.Invoke ();
+
+            Destroy (gameObject);
         }
     }
 }
